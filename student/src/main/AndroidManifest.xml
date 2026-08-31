@@ -14,6 +14,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <receiver
+            android:name=".StudyScheduleReceiver"
+            android:exported="false" />
         <service
             android:name=".StudyLockAccessibilityService"
             android:exported="false"
