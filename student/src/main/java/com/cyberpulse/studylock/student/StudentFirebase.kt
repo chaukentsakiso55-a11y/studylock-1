@@ -1,7 +1,9 @@
 package com.cyberpulse.studylock.student
 
+import android.content.Context
 import com.cyberpulse.studylock.shared.StudentConfig
 import com.cyberpulse.studylock.shared.StudentMetrics
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -61,7 +63,25 @@ class StudentFirebase {
         val uid = auth.currentUser!!.uid
         return db.collection("students").document(uid).collection("config").document("current")
             .addSnapshotListener { snapshot, _ ->
-                snapshot?.toObject(StudentConfig::class.java)?.let(onConfig)
+                snapshot?.toObject(StudentConfig::class.java)?.let { config ->
+                    val context = FirebaseApp.getInstance().applicationContext
+                    val prefs = context.getSharedPreferences("studylock", Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putStringSet("blocked_apps", config.blockedApps.toSet())
+                        .putBoolean("auto_study", config.autoStudyEnabled)
+                        .putInt("schedule_hour", config.scheduledStartHour ?: -1)
+                        .putInt("schedule_minute", config.scheduledStartMinute ?: -1)
+                        .putInt("schedule_length", config.defaultStudyMinutes.coerceIn(25, 300))
+                        .apply()
+                    StudyScheduleManager.scheduleDaily(
+                        context,
+                        config.autoStudyEnabled,
+                        config.scheduledStartHour,
+                        config.scheduledStartMinute,
+                        config.defaultStudyMinutes
+                    )
+                    onConfig(config)
+                }
             }
     }
 
