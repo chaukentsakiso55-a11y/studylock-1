@@ -1,41 +1,200 @@
 # StudyLock
 
-StudyLock is a Cyber Pulse student-focus project with separate Android apps for students and parents.
+StudyLock is a Cyber Pulse Android project with separate Student and Parent apps connected through Firebase.
 
-## Modules
+## Project modules
 
-- `student` — student focus app, Live Tutor UI foundation, blocked-app accessibility service and local focus controls.
-- `parent` — parent pairing/dashboard UI and remote-control foundation.
-- `shared` — common pairing, metrics, configuration and parent-command models used by both apps.
+- `student` — focus sessions, accessibility-based blocked-app redirection, Firebase sync, pairing codes, daily schedule support, study metrics, Gemini Live Tutor, and text-to-speech.
+- `parent` — pairing, live student metrics, remote focus start/end, blocked-app configuration, and scheduled-study configuration.
+- `shared` — common models used by both apps.
 
-## Current repository status
+## What is implemented
 
-This repository now contains a clean Android Studio multi-module Kotlin/Jetpack Compose foundation. It intentionally does not contain private API keys, Firebase credentials, signing keys or generated APK files.
+### Student app
+
+- Kotlin + Jetpack Compose Android app.
+- Focus length limited to 25–300 minutes.
+- Local focus state persistence.
+- Accessibility service that redirects away from configured blocked apps while focus is active.
+- Six-character pairing-code generation.
+- Firebase Anonymous Authentication.
+- Firestore pairing confirmation.
+- Firestore metrics upload.
+- Real-time parent command listener.
+- Remote start-focus and end-focus commands.
+- Remote blocked-app updates.
+- Remote daily schedule configuration.
+- AlarmManager-based daily schedule state activation.
+- Gemini Live Tutor using the current Gemini Interactions REST API.
+- API key stored only in local app preferences, not in GitHub or Firestore.
+- Android TextToSpeech output for tutor replies.
+
+### Parent app
+
+- Kotlin + Jetpack Compose Android app.
+- Join Student app using the six-character pairing code.
+- Pairing waits for Student-side confirmation before protected data becomes accessible.
+- Live student focus state.
+- Total-study and AI-usage metric display.
+- Remote focus start/end.
+- Focus duration selection from 25–300 minutes.
+- Remote blocked-app package list.
+- Remote daily schedule configuration.
+
+### Firebase security
+
+`firestore.rules` restricts protected student metrics, commands, and configuration to the Student account and the paired Parent account. The Student account is the only account allowed to accept the paired parent into its own student record.
+
+Pairing-code documents are readable by authenticated users because the Parent app must resolve a code before it knows the Student UID. Pairing codes are random, short-lived application credentials and should be regenerated if exposed. For a production deployment, add expiry timestamps and cleanup of stale pairing documents.
 
 ## Firebase setup
 
-Create two Android apps in the same Firebase project:
+Create one Firebase project and register these two Android applications inside it:
 
-- `com.cyberpulse.studylock.student`
-- `com.cyberpulse.studylock.parent`
+- Student package: `com.cyberpulse.studylock.student`
+- Parent package: `com.cyberpulse.studylock.parent`
 
-Download each app's `google-services.json` and place it inside its matching module locally. These files are ignored by Git and should not be committed to a public repository.
+For each registered Android app, download its own `google-services.json` file.
 
-The backend should store pairing sessions, student metrics, parent commands and student configuration. The shared models in `shared/src/main/java/com/cyberpulse/studylock/shared/Models.kt` define the initial contract.
+Place them locally as:
 
-## Important implementation work still required
+```text
+student/google-services.json
+parent/google-services.json
+```
 
-The current code is a foundation rather than a finished production parental-control system. The developer should connect Firebase Authentication/Firestore or another secure backend, implement real-time pairing, persist focus/session state, implement secure PIN management, scheduling, metrics upload, remote command handling, Gemini Live Tutor API calls and text-to-speech, and add tests.
+Do not commit either file to a public repository. The repository `.gitignore` already excludes `google-services.json`.
 
-Android Accessibility access must be explicitly enabled by the device user. StudyLock should not attempt to bypass Android security or secretly enable privileged permissions.
+### Enable Authentication
 
-## Build notes
+In Firebase Console:
 
-Open the repository in Android Studio with JDK 17. If the repository does not yet contain a Gradle wrapper on the developer's machine, generate one with a compatible Gradle installation or let Android Studio configure the project, then sync Gradle.
+1. Open Authentication.
+2. Open Sign-in method.
+3. Enable Anonymous authentication.
 
-Compile SDK: 35
-Minimum SDK: 26
+StudyLock currently uses anonymous Firebase identities so pairing works without collecting student or parent email addresses. A production release can later migrate to email/passkey/provider accounts while preserving the Firestore ownership model.
+
+### Create Firestore
+
+Create a Cloud Firestore database for the Firebase project.
+
+The repository contains:
+
+```text
+firebase.json
+firestore.rules
+firestore.indexes.json
+```
+
+Deploy the included rules with the Firebase CLI from the repository root:
+
+```bash
+firebase login
+firebase use YOUR_FIREBASE_PROJECT_ID
+firebase deploy --only firestore
+```
+
+Review the rules before production deployment and test them using the Firebase Emulator Suite.
+
+## Firestore layout
+
+```text
+pairings/{pairingCode}
+  studentId
+  parentId
+  paired
+  createdAt
+
+students/{studentId}
+  ownerId
+  parentId
+
+students/{studentId}/metrics/current
+  totalStudyMinutes
+  aiUsageCount
+  activeFocusSession
+  currentSessionMinutes
+  blockedApps
+  lastUpdatedEpochMs
+
+students/{studentId}/config/current
+  blockedApps
+  autoStudyEnabled
+  scheduledStartHour
+  scheduledStartMinute
+  defaultStudyMinutes
+
+students/{studentId}/commands/{commandId}
+  type
+  minutes
+  blockedApps
+  parentId
+  createdAt
+  processed
+```
+
+## Pairing flow
+
+1. Student opens StudyLock Student and generates a pairing code.
+2. Student shares that code with the intended parent/guardian.
+3. Parent enters the code in StudyLock Parent.
+4. Parent app claims the pairing document using its Firebase UID.
+5. Student app observes the claim and writes that Parent UID into `students/{studentId}`.
+6. Firestore security rules then allow only that paired Parent UID to read protected metrics and create remote commands.
+
+## Gemini Live Tutor
+
+The Student app uses Google's Gemini Interactions API and currently targets `gemini-3.7-flash`.
+
+The Gemini API key is entered by the Student on-device and stored locally in Android SharedPreferences. It is not committed to the repository and is not uploaded to Firestore by StudyLock.
+
+For a production release, consider proxying Gemini requests through a controlled backend so quotas and abuse protection are not tied directly to a client-side API key.
+
+## Accessibility and Android limitations
+
+StudyLock does not secretly enable Android permissions. The device user must explicitly enable the StudyLock Accessibility Service in Android Settings before blocked-app redirection can work.
+
+The accessibility service only redirects configured blocked packages while StudyLock's focus state is active. Android may restrict automatically bringing an activity to the foreground from the background on some devices. The scheduled receiver still records the scheduled focus state, but production behavior should be tested on the specific Android versions and manufacturers being supported.
+
+StudyLock should not attempt to bypass Android security, prevent normal operating-system recovery, hide itself, or silently grant privileged permissions. Stronger institution-managed restrictions should use Android's supported Device Policy / managed-device APIs rather than accessibility tricks.
+
+## Build requirements
+
+- Android Studio with JDK 17.
+- Compile SDK 35.
+- Minimum SDK 26.
+- Internet access for Gradle dependency download, Firebase, and Gemini.
+- Each module's correct local `google-services.json`.
+
+The repository does not currently include generated APK files or signing keys.
+
+If a Gradle wrapper is not present after cloning, Android Studio can import/sync the project using a compatible local Gradle installation and a wrapper can then be generated for the repository.
+
+## Before release
+
+The developer should still complete production testing, including:
+
+- Firebase Emulator security-rule tests.
+- Pairing expiry and stale-code cleanup.
+- Authentication-account upgrade/migration if anonymous identities are not sufficient.
+- Session-duration accumulation into `totalStudyMinutes`.
+- App lifecycle/reboot handling for scheduled study sessions.
+- Manufacturer-specific background restrictions.
+- Unit/UI/instrumentation tests.
+- Crash reporting and privacy review.
+- Release signing and Play policy review, especially for AccessibilityService usage.
+
+## Repository safety
+
+Never commit:
+
+- `google-services.json`
+- Gemini/API secrets
+- signing keystores
+- service-account keys
+- Firebase Admin credentials
 
 ## Project identity
 
-StudyLock is a Cyber Pulse project focused on helping students remain focused during study sessions while allowing appropriately paired parent/guardian oversight.
+StudyLock is a Cyber Pulse student-focus project designed to help students remain focused during study sessions while supporting transparent, appropriately paired parent or guardian oversight.
