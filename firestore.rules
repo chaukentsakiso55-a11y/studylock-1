@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function studentDoc(studentId) {
+      return get(/databases/$(database)/documents/students/$(studentId));
+    }
+
+    function isStudent(studentId) {
+      return signedIn() && request.auth.uid == studentId;
+    }
+
+    function isPairedParent(studentId) {
+      return signedIn() && studentDoc(studentId).data.parentId == request.auth.uid;
+    }
+
+    match /pairings/{code} {
+      allow create: if signedIn()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.parentId == ""
+        && request.resource.data.paired == false;
+
+      allow read: if signedIn();
+
+      allow update: if signedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        (
+          resource.data.parentId == "" &&
+          request.resource.data.studentId == resource.data.studentId &&
+          request.resource.data.parentId == request.auth.uid &&
+          request.resource.data.paired == true
+        )
+      );
+
+      allow delete: if signedIn() && resource.data.studentId == request.auth.uid;
+    }
+
+    match /students/{studentId} {
+      allow create: if isStudent(studentId)
+        && request.resource.data.ownerId == studentId;
+      allow read: if signedIn();
+      allow update: if isStudent(studentId)
+        && request.resource.data.ownerId == studentId;
+      allow delete: if false;
+
+      match /metrics/{documentId} {
+        allow read: if isStudent(studentId) || isPairedParent(studentId);
+        allow create, update: if isStudent(studentId);
+        allow delete: if false;
+      }
+
+      match /commands/{commandId} {
+        allow create: if isPairedParent(studentId)
+          && request.resource.data.parentId == request.auth.uid
+          && request.resource.data.processed == false;
+        allow read, update: if isStudent(studentId);
+        allow delete: if false;
+      }
+
+      match /config/{documentId} {
+        allow read: if isStudent(studentId) || isPairedParent(studentId);
+        allow create, update: if isPairedParent(studentId) || isStudent(studentId);
+        allow delete: if false;
+      }
+    }
+  }
+}
