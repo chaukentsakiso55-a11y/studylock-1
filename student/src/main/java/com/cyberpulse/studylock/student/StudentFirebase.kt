@@ -30,6 +30,7 @@ class StudentFirebase {
                 "studentId" to uid,
                 "parentId" to "",
                 "paired" to false,
+                "confirmed" to false,
                 "createdAt" to System.currentTimeMillis()
             )
         ).await()
@@ -41,13 +42,20 @@ class StudentFirebase {
     }
 
     fun observePairing(code: String, onPaired: (String) -> Unit): ListenerRegistration {
-        return db.collection("pairings").document(code).addSnapshotListener { snapshot, _ ->
+        val ref = db.collection("pairings").document(code)
+        return ref.addSnapshotListener { snapshot, _ ->
             val parentId = snapshot?.getString("parentId").orEmpty()
             if (parentId.isNotBlank() && snapshot?.getBoolean("paired") == true) {
                 val uid = auth.currentUser?.uid ?: return@addSnapshotListener
                 db.collection("students").document(uid)
-                    .set(mapOf("ownerId" to uid, "parentId" to parentId), com.google.firebase.firestore.SetOptions.merge())
-                onPaired(parentId)
+                    .set(
+                        mapOf("ownerId" to uid, "parentId" to parentId),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                    .addOnSuccessListener {
+                        ref.update("confirmed", true)
+                        onPaired(parentId)
+                    }
             }
         }
     }
