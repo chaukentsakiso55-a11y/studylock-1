@@ -5,6 +5,7 @@ import com.cyberpulse.studylock.shared.StudentMetrics
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
@@ -25,7 +26,13 @@ class ParentFirebase {
         val existingParent = snapshot.getString("parentId").orEmpty()
         require(existingParent.isBlank() || existingParent == parentId) { "Pairing code already used" }
         ref.update(mapOf("parentId" to parentId, "paired" to true)).await()
-        return studentId
+
+        repeat(20) {
+            val student = db.collection("students").document(studentId).get().await()
+            if (student.getString("parentId") == parentId) return studentId
+            delay(500)
+        }
+        error("Student has not confirmed the pairing yet. Keep the Student app online and try again.")
     }
 
     fun observeMetrics(studentId: String, onMetrics: (StudentMetrics) -> Unit): ListenerRegistration {
@@ -45,9 +52,9 @@ class ParentFirebase {
 
     suspend fun updateBlockedApps(studentId: String, packages: List<String>) {
         val parentId = ensureSignedIn()
-        db.collection("students").document(studentId).collection("config").document("current")
-            .set(StudentConfig(blockedApps = packages.distinct()))
-            .await()
+        val configRef = db.collection("students").document(studentId).collection("config").document("current")
+        val existing = configRef.get().await().toObject(StudentConfig::class.java) ?: StudentConfig()
+        configRef.set(existing.copy(blockedApps = packages.distinct())).await()
         sendCommand(
             studentId,
             mapOf("type" to "UPDATE_BLOCKED_APPS", "blockedApps" to packages.distinct(), "processed" to false, "parentId" to parentId)
@@ -55,15 +62,16 @@ class ParentFirebase {
     }
 
     suspend fun updateSchedule(studentId: String, enabled: Boolean, hour: Int, minute: Int, studyMinutes: Int) {
-        db.collection("students").document(studentId).collection("config").document("current")
-            .set(
-                StudentConfig(
-                    autoStudyEnabled = enabled,
-                    scheduledStartHour = hour.coerceIn(0, 23),
-                    scheduledStartMinute = minute.coerceIn(0, 59),
-                    defaultStudyMinutes = studyMinutes.coerceIn(25, 300)
-                )
-            ).await()
+        val configRef = db.collection("students").document(studentId).collection("config").document("current")
+        val existing = configRef.get().await().toObject(StudentConfig::class.java) ?: StudentConfig()
+        configRef.set(
+            existing.copy(
+                autoStudyEnabled = enabled,
+                scheduledStartHour = hour.coerceIn(0, 23),
+                scheduledStartMinute = minute.coerceIn(0, 59),
+                defaultStudyMinutes = studyMinutes.coerceIn(25, 300)
+            )
+        ).await()
     }
 
     private suspend fun sendCommand(studentId: String, payload: Map<String, Any>) {
