@@ -21,17 +21,24 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.studentId == request.auth.uid
         && request.resource.data.parentId == ""
-        && request.resource.data.paired == false;
+        && request.resource.data.paired == false
+        && request.resource.data.confirmed == false;
 
       allow read: if signedIn();
 
       allow update: if signedIn() && (
-        resource.data.studentId == request.auth.uid ||
+        (
+          resource.data.studentId == request.auth.uid &&
+          request.resource.data.studentId == resource.data.studentId &&
+          request.resource.data.parentId == resource.data.parentId
+        ) ||
         (
           resource.data.parentId == "" &&
+          resource.data.confirmed == false &&
           request.resource.data.studentId == resource.data.studentId &&
           request.resource.data.parentId == request.auth.uid &&
-          request.resource.data.paired == true
+          request.resource.data.paired == true &&
+          request.resource.data.confirmed == false
         )
       );
 
@@ -41,7 +48,7 @@ service cloud.firestore {
     match /students/{studentId} {
       allow create: if isStudent(studentId)
         && request.resource.data.ownerId == studentId;
-      allow read: if signedIn();
+      allow read: if isStudent(studentId) || isPairedParent(studentId);
       allow update: if isStudent(studentId)
         && request.resource.data.ownerId == studentId;
       allow delete: if false;
