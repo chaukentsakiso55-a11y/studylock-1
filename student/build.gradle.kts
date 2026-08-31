@@ -22,9 +22,9 @@ android {
 
 dependencies {
     implementation(project(":shared"))
-    implementation(platform("com.google.firebase:firebase-bom:33.10.0"))
-    implementation("com.google.firebase:firebase-auth-ktx")
-    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation(platform("com.google.firebase:firebase-bom:34.18.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.android.gms:play-services-tasks:18.2.0")
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.material3:material3:1.3.1")
