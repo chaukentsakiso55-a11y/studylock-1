@@ -28,8 +28,10 @@ class ParentFirebase {
         ref.update(mapOf("parentId" to parentId, "paired" to true)).await()
 
         repeat(20) {
-            val student = db.collection("students").document(studentId).get().await()
-            if (student.getString("parentId") == parentId) return studentId
+            val confirmation = ref.get().await()
+            if (confirmation.getBoolean("confirmed") == true && confirmation.getString("parentId") == parentId) {
+                return studentId
+            }
             delay(500)
         }
         error("Student has not confirmed the pairing yet. Keep the Student app online and try again.")
